@@ -39,6 +39,7 @@ func createWorker(wg *sync.WaitGroup, lines <-chan []string, results chan<- map[
 }
 
 func scanFile(ctx context.Context, input io.Reader, lines chan<- []string) error {
+	defer close(lines)
 	scanner := bufio.NewScanner(input)
 	maxCapacity := 1024 * 1024
 	buf := make([]byte, maxCapacity)
@@ -51,7 +52,6 @@ func scanFile(ctx context.Context, input io.Reader, lines chan<- []string) error
 		if len(batch) >= batchSize {
 			select {
 			case <-ctx.Done():
-				close(lines)
 				return ctx.Err()
 			case lines <- batch:
 				batch = nil
@@ -62,7 +62,6 @@ func scanFile(ctx context.Context, input io.Reader, lines chan<- []string) error
 	if len(batch) > 0 {
 		lines <- batch
 	}
-	close(lines)
 
 	if err := scanner.Err(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error reading file: %v\n", err)
