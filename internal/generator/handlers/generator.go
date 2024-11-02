@@ -1,4 +1,4 @@
-package generator
+package handler
 
 import (
 	"bufio"
@@ -9,24 +9,35 @@ import (
 	"time"
 )
 
+var levels = []string{"trace", "debug", "info", "warn", "error"}
 var outputFile = "logs.ldjson"
 
-var levels = []string{"trace", "debug", "info", "warn", "error"}
+func isOutputRedirected() bool {
+	fileInfo, err := os.Stdout.Stat()
+	if err != nil {
+		return false
+	}
+	return fileInfo.Mode()&os.ModeCharDevice == 0
+}
 
 func Generate(ctx context.Context, n int, fromTime, toTime time.Time) error {
+	output := os.Stdout
+	if !isOutputRedirected() {
+		file, err := os.Create(outputFile)
+		if err != nil {
+			fmt.Printf("Error creating file logs.ldjson: %v\n", err)
+			os.Exit(1)
+		}
+		defer file.Close()
+		output = file
+	}
+
 	delta := toTime.Sub(fromTime).Milliseconds()
 
 	src := rand.NewSource(time.Now().UnixMilli())
 	r := rand.New(src)
 
-	file, err := os.Create(outputFile)
-	if err != nil {
-		fmt.Printf("Error creating file logs.ldjson: %v\n", err)
-		os.Exit(1)
-	}
-	defer file.Close()
-
-	writer := bufio.NewWriterSize(file, 64*1024*1024)
+	writer := bufio.NewWriterSize(output, 64*1024*1024)
 	defer writer.Flush()
 
 	for i := 0; i < n; i++ {

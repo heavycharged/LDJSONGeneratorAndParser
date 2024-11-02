@@ -1,18 +1,27 @@
-package parser
+//go:generate easyjson -all
+
+package handler
 
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"sync"
+
+	"github.com/mailru/easyjson"
 )
 
+type LogTs int
+type LogLevel string
+type LogMessage string
+
+// easyjson:json
 type LogEntry struct {
-	Ts      int    `json:"-"`
-	Level   string `json:"level"`
-	Message string `json:"-"`
+	Ts      LogTs      `json:"-"`
+	Level   LogLevel   `json:"level"`
+	Message LogMessage `json:"-"`
 }
 
 func createWorker(wg *sync.WaitGroup, lines <-chan []string, results chan<- map[string]int64) {
@@ -20,17 +29,17 @@ func createWorker(wg *sync.WaitGroup, lines <-chan []string, results chan<- map[
 	localResult := make(map[string]int64)
 	for bag := range lines {
 		for _, line := range bag {
-			var entry LogEntry
-			if err := json.Unmarshal([]byte(line), &entry); err == nil {
-				localResult[entry.Level]++
+			entry := &LogEntry{}
+			if err := easyjson.Unmarshal([]byte(line), entry); err == nil {
+				localResult[string(entry.Level)]++
 			}
 		}
 	}
 	results <- localResult
 }
 
-func scanFile(ctx context.Context, file *os.File, lines chan<- []string) error {
-	scanner := bufio.NewScanner(file)
+func scanFile(ctx context.Context, input io.Reader, lines chan<- []string) error {
+	scanner := bufio.NewScanner(input)
 	maxCapacity := 1024 * 1024
 	buf := make([]byte, maxCapacity)
 	scanner.Buffer(buf, maxCapacity)
@@ -78,16 +87,7 @@ func getResult(results chan map[string]int64) map[string]int64 {
 	return finalResult
 }
 
-func Parse(ctx context.Context, n int, filePath string) (map[string]int64, error) {
-	file, err := os.Open(filePath)
-
-	if err != nil {
-		fmt.Println("No file")
-		return nil, err
-	}
-
-	defer file.Close()
-
+func Parse(ctx context.Context, n int, input io.Reader) (map[string]int64, error) {
 	results := make(chan map[string]int64, n)
 	lines := make(chan []string, n)
 
@@ -97,7 +97,7 @@ func Parse(ctx context.Context, n int, filePath string) (map[string]int64, error
 		go createWorker(&wg, lines, results)
 	}
 
-	if err := scanFile(ctx, file, lines); err != nil {
+	if err := scanFile(ctx, input, lines); err != nil {
 		return nil, err
 	}
 

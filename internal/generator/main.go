@@ -1,10 +1,11 @@
 package main
 
 import (
-	"context"
+	generator "GeneratorAndParser/internal/generator/handlers"
+	"GeneratorAndParser/internal/handlers"
 	"flag"
 	"fmt"
-	generator "logsGenerator/handler"
+	"log"
 	"os"
 	"time"
 )
@@ -23,6 +24,12 @@ func init() {
 
 func main() {
 	flag.Parse()
+
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("Recovered from panic: %v", r)
+		}
+	}()
 
 	startTime := time.Now()
 
@@ -48,8 +55,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := handlers.SetupContext()
 
 	err = generator.Generate(ctx, n, fromTime, toTime)
 

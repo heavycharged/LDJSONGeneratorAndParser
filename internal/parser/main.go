@@ -1,10 +1,12 @@
 package main
 
 import (
-	"context"
+	"GeneratorAndParser/internal/handlers"
+	parser "GeneratorAndParser/internal/parser/handlers"
 	"flag"
 	"fmt"
-	parser "logsParser/handler"
+	"log"
+	"os"
 	"runtime"
 	"time"
 )
@@ -12,24 +14,27 @@ import (
 var levels = []string{"trace", "debug", "info", "warn", "error"}
 
 var (
-	n        int
-	filePath string
+	n int
 )
 
 func init() {
 	flag.IntVar(&n, "n", runtime.NumCPU(), "Number of streams")
-	flag.StringVar(&filePath, "filePath", "logs.ldjson", "Name of file")
 }
 
 func main() {
 	flag.Parse()
 
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("Recovered from panic: %v", r)
+		}
+	}()
+
 	startTime := time.Now()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := handlers.SetupContext()
 
-	result, err := parser.Parse(ctx, n, filePath)
+	result, err := parser.Parse(ctx, n, os.Stdin)
 
 	if err != nil {
 		fmt.Printf("Error: %v", err)
