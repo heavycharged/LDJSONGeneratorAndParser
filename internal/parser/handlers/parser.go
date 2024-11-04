@@ -5,9 +5,7 @@ package handler
 import (
 	"bufio"
 	"context"
-	"fmt"
 	"io"
-	"os"
 	"sync"
 
 	"github.com/mailru/easyjson"
@@ -24,13 +22,14 @@ type LogEntry struct {
 	Message LogMessage `json:"-"`
 }
 
-func createWorker(wg *sync.WaitGroup, lines <-chan []string, results chan<- map[string]int64) {
+func createWorker(wg *sync.WaitGroup, lines <-chan [][]byte, results chan<- map[string]int64) {
 	defer wg.Done()
 	localResult := make(map[string]int64)
+
 	for bag := range lines {
 		for _, line := range bag {
 			entry := &LogEntry{}
-			if err := easyjson.Unmarshal([]byte(line), entry); err == nil {
+			if err := easyjson.Unmarshal(line, entry); err == nil {
 				localResult[string(entry.Level)]++
 			}
 		}
@@ -38,23 +37,28 @@ func createWorker(wg *sync.WaitGroup, lines <-chan []string, results chan<- map[
 	results <- localResult
 }
 
-func scanFile(ctx context.Context, input io.Reader, lines chan<- []string) error {
+func scanFile(ctx context.Context, input io.Reader, lines chan<- [][]byte) error {
 	defer close(lines)
 	scanner := bufio.NewScanner(input)
-	maxCapacity := 1024 * 1024
+
+	maxCapacity := 10 * 1024 * 1024
 	buf := make([]byte, maxCapacity)
 	scanner.Buffer(buf, maxCapacity)
 
 	batchSize := 100000
-	batch := make([]string, batchSize)
+	batch := make([][]byte, 0, batchSize)
+
 	for scanner.Scan() {
-		batch = append(batch, scanner.Text())
+		line := make([]byte, len(scanner.Bytes()))
+		copy(line, scanner.Bytes())
+		batch = append(batch, line)
+
 		if len(batch) >= batchSize {
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
 			case lines <- batch:
-				batch = nil
+				batch = make([][]byte, 0, batchSize)
 			}
 		}
 	}
@@ -63,12 +67,7 @@ func scanFile(ctx context.Context, input io.Reader, lines chan<- []string) error
 		lines <- batch
 	}
 
-	if err := scanner.Err(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading file: %v\n", err)
-		return err
-	}
-
-	return nil
+	return scanner.Err()
 }
 
 func waitAndClose(wg *sync.WaitGroup, result chan map[string]int64) {
@@ -88,7 +87,7 @@ func getResult(results chan map[string]int64) map[string]int64 {
 
 func Parse(ctx context.Context, n int, input io.Reader) (map[string]int64, error) {
 	results := make(chan map[string]int64, n)
-	lines := make(chan []string, n)
+	lines := make(chan [][]byte, n)
 
 	var wg sync.WaitGroup
 	for i := 0; i < n; i++ {
