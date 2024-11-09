@@ -10,7 +10,6 @@ go build -o generate ./internal/generator/main.go
 ## For parsing ldjson file
 
 ```
-cd logsParser
 go build -o parse ./internal/parser/main.go
 cat logs.ldjson | ./parse
 ```
