@@ -38,27 +38,30 @@ func createWorker(lines <-chan [][]byte, results chan<- map[LogLevel]int64) {
 }
 
 func scanFile(ctx context.Context, input io.Reader, lines chan<- [][]byte) error {
+	const (
+		BATCH_SIZE       = 1024
+		MAX_BUF_CAPACITY = 8 * 1024 * 1024
+	)
+
 	defer close(lines)
+	buf := make([]byte, MAX_BUF_CAPACITY)
+
 	scanner := bufio.NewScanner(input)
+	scanner.Buffer(buf, MAX_BUF_CAPACITY)
 
-	maxCapacity := 10 * 1024 * 1024
-	buf := make([]byte, maxCapacity)
-	scanner.Buffer(buf, maxCapacity)
-
-	batchSize := 100000
-	batch := make([][]byte, 0, batchSize)
+	batch := make([][]byte, 0, BATCH_SIZE)
 
 	for scanner.Scan() {
 		line := make([]byte, len(scanner.Bytes()))
 		copy(line, scanner.Bytes())
 		batch = append(batch, line)
 
-		if len(batch) >= batchSize {
+		if len(batch) >= BATCH_SIZE {
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
 			case lines <- batch:
-				batch = make([][]byte, 0, batchSize)
+				batch = make([][]byte, 0, BATCH_SIZE)
 			}
 		}
 	}
@@ -82,13 +85,14 @@ func getResult(results chan map[LogLevel]int64) map[LogLevel]int64 {
 
 func Parse(ctx context.Context, n int, input io.Reader) (map[LogLevel]int64, error) {
 	var (
-		results = make(chan map[LogLevel]int64, n)
-		lines   = make(chan [][]byte, n)
+		results = make(chan map[LogLevel]int64)
+		lines   = make(chan [][]byte, n*2)
 	)
 
 	var wg sync.WaitGroup
+	wg.Add(n)
+
 	for i := 0; i < n; i++ {
-		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			createWorker(lines, results)
