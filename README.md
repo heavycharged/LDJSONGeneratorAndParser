@@ -1,5 +1,9 @@
 # Generator and Parser for ldjson file
 
+## Install hyperfine
+Install [hyperfine](https://github.com/sharkdp/hyperfine) to compare parsing speed.
+
+
 ## For generating ldjson file
 
 ```

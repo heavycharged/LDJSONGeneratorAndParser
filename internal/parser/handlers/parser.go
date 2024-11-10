@@ -22,18 +22,18 @@ type LogEntry struct {
 	Message LogMessage `json:"-"`
 }
 
-func createWorker(wg *sync.WaitGroup, lines <-chan [][]byte, results chan<- map[string]int64) {
-	defer wg.Done()
-	localResult := make(map[string]int64)
+func createWorker(lines <-chan [][]byte, results chan<- map[LogLevel]int64) {
+	localResult := make(map[LogLevel]int64)
 
 	for bag := range lines {
 		for _, line := range bag {
 			entry := &LogEntry{}
 			if err := easyjson.Unmarshal(line, entry); err == nil {
-				localResult[string(entry.Level)]++
+				localResult[entry.Level]++
 			}
 		}
 	}
+
 	results <- localResult
 }
 
@@ -70,13 +70,8 @@ func scanFile(ctx context.Context, input io.Reader, lines chan<- [][]byte) error
 	return scanner.Err()
 }
 
-func waitAndClose(wg *sync.WaitGroup, result chan map[string]int64) {
-	wg.Wait()
-	close(result)
-}
-
-func getResult(results chan map[string]int64) map[string]int64 {
-	finalResult := make(map[string]int64)
+func getResult(results chan map[LogLevel]int64) map[LogLevel]int64 {
+	finalResult := make(map[LogLevel]int64)
 	for res := range results {
 		for level, count := range res {
 			finalResult[level] += count
@@ -85,21 +80,29 @@ func getResult(results chan map[string]int64) map[string]int64 {
 	return finalResult
 }
 
-func Parse(ctx context.Context, n int, input io.Reader) (map[string]int64, error) {
-	results := make(chan map[string]int64, n)
-	lines := make(chan [][]byte, n)
+func Parse(ctx context.Context, n int, input io.Reader) (map[LogLevel]int64, error) {
+	var (
+		results = make(chan map[LogLevel]int64, n)
+		lines   = make(chan [][]byte, n)
+	)
 
 	var wg sync.WaitGroup
 	for i := 0; i < n; i++ {
 		wg.Add(1)
-		go createWorker(&wg, lines, results)
+		go func() {
+			defer wg.Done()
+			createWorker(lines, results)
+		}()
 	}
 
 	if err := scanFile(ctx, input, lines); err != nil {
 		return nil, err
 	}
 
-	go waitAndClose(&wg, results)
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
 
 	var finalResult = getResult(results)
 
