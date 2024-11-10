@@ -5,13 +5,12 @@ import (
 	parser "GeneratorAndParser/internal/parser/handlers"
 	"flag"
 	"fmt"
-	"log"
 	"os"
 	"runtime"
 	"time"
 )
 
-var levels = []string{"trace", "debug", "info", "warn", "error"}
+var levels = []parser.LogLevel{"trace", "debug", "info", "warn", "error"}
 
 var (
 	n int
@@ -24,12 +23,6 @@ func init() {
 func main() {
 	flag.Parse()
 
-	defer func() {
-		if r := recover(); r != nil {
-			log.Printf("Recovered from panic: %v", r)
-		}
-	}()
-
 	startTime := time.Now()
 
 	ctx := handlers.SetupContext()
@@ -38,6 +31,7 @@ func main() {
 
 	if err != nil {
 		fmt.Printf("Error: %v", err)
+		os.Exit(1)
 	}
 
 	fmt.Println("Log's level statistics:")

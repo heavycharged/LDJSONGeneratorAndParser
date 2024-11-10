@@ -1,1 +1,4 @@
 .DS_Store
+bin/parser-modified
+results.*
+logs.ldjson
