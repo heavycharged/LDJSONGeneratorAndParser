@@ -6,9 +6,10 @@ import (
 	"bufio"
 	"context"
 	"io"
-	"sync"
+	"log"
 
 	"github.com/mailru/easyjson"
+	"github.com/minio/simdjson-go"
 )
 
 type LogTs int
@@ -85,30 +86,38 @@ func getResult(results chan map[LogLevel]int64) map[LogLevel]int64 {
 
 func Parse(ctx context.Context, n int, input io.Reader) (map[LogLevel]int64, error) {
 	var (
-		results = make(chan map[LogLevel]int64)
-		lines   = make(chan [][]byte, n*2)
+		res   = make(chan simdjson.Stream)
+		reuse = make(chan *simdjson.ParsedJson)
+		stats = make(map[LogLevel]int64)
 	)
 
-	var wg sync.WaitGroup
-	wg.Add(n)
+	simdjson.ParseNDStream(input, res, reuse)
 
-	for i := 0; i < n; i++ {
-		go func() {
-			defer wg.Done()
-			createWorker(lines, results)
-		}()
+	for got := range res {
+		if got.Error != nil {
+			if got.Error == io.EOF {
+				break
+			}
+			log.Fatal(got.Error)
+		}
+
+		var elem *simdjson.Element
+		err := got.Value.ForEach(func(i simdjson.Iter) error {
+			var err error
+			elem, err = i.FindElement(elem, "level")
+			if err != nil {
+				return nil
+			}
+			item, _ := elem.Iter.StringBytes()
+			stats[LogLevel(item)]++
+			return nil
+		})
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		reuse <- got.Value
 	}
 
-	if err := scanFile(ctx, input, lines); err != nil {
-		return nil, err
-	}
-
-	go func() {
-		wg.Wait()
-		close(results)
-	}()
-
-	var finalResult = getResult(results)
-
-	return finalResult, nil
+	return stats, nil
 }
